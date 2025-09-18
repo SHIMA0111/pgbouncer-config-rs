@@ -9,7 +9,7 @@ repository = "https://github.com/SHIMA0111/pgbouncer-config-rs"
 
 [dependencies]
 # Error
-thiserror = { workspace = true }
+thiserror = "2"
 
 # Structured/Parser
 serde = { version = "1", features = ["derive"] }

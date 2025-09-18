@@ -57,7 +57,7 @@ pub trait Expression: ExpressionClone + Any + Debug {
     /// means it has a lifetime lasting for the duration of the program.
     /// 
     /// # Note
-    /// This is **NOT** a section name in `pgbouncer.ini` file. 
+    /// This is **NOT** a section name in `pgbouncer.ini` file.
     /// This is a section name of the intermediate configuration section.
     ///
     /// # Returns
