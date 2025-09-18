@@ -214,4 +214,4 @@ You can regenerate these via the CLI.
 
 Language
 
-- Japanese README is available at README-ja.md.
+- Japanese README is available at [README in Japanese](README-ja.md).
