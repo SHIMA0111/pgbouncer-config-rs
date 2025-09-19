@@ -18,18 +18,18 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
-#[cfg(feature = "io")]
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use crate::error::PgBouncerError;
+#[cfg(feature = "io")]
+use regex::Regex;
 #[cfg(feature = "io")]
 use crate::pgbouncer_config::databases_setting::DatabasesSetting;
 #[cfg(feature = "io")]
 use crate::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
-#[cfg(feature = "diff")]
-use crate::utils::diff::Diffable;
 #[cfg(feature = "io")]
 use crate::utils::parser::{is_comment, ParserIniFromStr};
+#[cfg(feature = "diff")]
+use crate::utils::diff::Diffable;
 
 pub mod pgbouncer_setting;
 pub mod databases_setting;
@@ -341,9 +341,6 @@ where
     }
 }
 
-#[cfg(feature = "diff")]
-#[typetag::serde]
-impl Diffable for PgBouncerConfig {}
 
 #[typetag::serde]
 impl Expression for PgBouncerConfig {
@@ -427,6 +424,10 @@ impl ParserIniFromStr for PgBouncerConfig {
         Ok(pgbouncer_config)
     }
 }
+
+#[cfg(feature = "diff")]
+#[typetag::serde]
+impl Diffable for PgBouncerConfig {}
 
 #[cfg(test)]
 mod tests {

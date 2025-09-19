@@ -1,20 +1,20 @@
-#[cfg(feature = "io")]
-use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
 use futures::future::join_all;
-#[cfg(feature = "io")]
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-#[cfg(feature = "io")]
-use crate::error::PgBouncerError;
 use crate::pg_client::PgClient;
 use crate::pgbouncer_config::Expression;
-#[cfg(feature = "diff")]
-use crate::utils::diff::Diffable;
+#[cfg(feature = "io")]
+use std::collections::HashMap;
+#[cfg(feature = "io")]
+use regex::Regex;
+#[cfg(feature = "io")]
+use crate::error::PgBouncerError;
 #[cfg(feature = "io")]
 use crate::utils::parser::{parse_key_value, ParserIniFromStr};
+#[cfg(feature = "diff")]
+use crate::utils::diff::Diffable;
 
 /// Databases section settings.
 ///
@@ -237,10 +237,6 @@ impl Expression for DatabasesSetting {
     }
 }
 
-#[cfg(feature = "diff")]
-#[typetag::serde]
-impl Diffable for DatabasesSetting {}
-
 #[cfg(feature = "io")]
 impl ParserIniFromStr for DatabasesSetting {
     type Error = PgBouncerError;
@@ -255,6 +251,10 @@ impl ParserIniFromStr for DatabasesSetting {
         Ok(database_setting)
     }
 }
+
+#[cfg(feature = "diff")]
+#[typetag::serde]
+impl Diffable for DatabasesSetting {}
 
 /// A single database routing entry.
 ///

@@ -1,13 +1,13 @@
-#[cfg(feature = "io")]
-use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
 use crate::error::PgBouncerError;
 use crate::pgbouncer_config::Expression;
-#[cfg(feature = "diff")]
-use crate::utils::diff::Diffable;
+#[cfg(feature = "io")]
+use std::collections::HashMap;
 #[cfg(feature = "io")]
 use crate::utils::parser::{parse_key_value, ParserIniFromStr};
+#[cfg(feature = "diff")]
+use crate::utils::diff::Diffable;
 
 /// PgBouncer configuration settings.
 ///
@@ -1035,10 +1035,6 @@ impl Expression for PgBouncerSetting {
     }
 }
 
-#[cfg(feature = "diff")]
-#[typetag::serde]
-impl Diffable for PgBouncerSetting {}
-
 #[cfg(feature = "io")]
 impl ParserIniFromStr for PgBouncerSetting {
     type Error = PgBouncerError;
@@ -1221,6 +1217,10 @@ impl ParserIniFromStr for PgBouncerSetting {
         })
     }
 }
+
+#[cfg(feature = "diff")]
+#[typetag::serde]
+impl Diffable for PgBouncerSetting {}
 
 /// Authentication type used by PgBouncer.
 ///

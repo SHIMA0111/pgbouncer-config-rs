@@ -11,6 +11,10 @@ pub enum PgBouncerError {
     PgBouncer(String),
     #[error("I/O Error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Regex Error: {0}")]
+    Regex(#[from] regex::Error),
+    #[error("Tokio task Error: {0}")]
+    Join(#[from] tokio::task::JoinError),
     #[cfg(feature = "io")]
     #[error("Serialize Error: {0}")]
     Serialize(#[from] toml::ser::Error),
@@ -20,8 +24,4 @@ pub enum PgBouncerError {
     #[cfg(feature = "io")]
     #[error("Deserialize Error: {0}")]
     Deserialize(#[from] toml::de::Error),
-    #[error("Regex Error: {0}")]
-    Regex(#[from] regex::Error),
-    #[error("Tokio task Error: {0}")]
-    Join(#[from] tokio::task::JoinError),
 }

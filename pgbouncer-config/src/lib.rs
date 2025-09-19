@@ -54,6 +54,6 @@ pub mod pgbouncer_config;
 pub mod error;
 pub(crate) mod pg_client;
 pub mod builder;
+pub mod utils;
 #[cfg(feature = "io")]
 pub mod io;
-pub mod utils;
