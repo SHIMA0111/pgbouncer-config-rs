@@ -20,19 +20,9 @@ impl DisplayOptions {
     }
 }
 
-impl Default for DisplayOptions {
-    fn default() -> Self {
-        Self {
-            decoration: true,
-            show_same: false,
-            max_diff_depth: 0,
-        }
-    }
-}
-
-pub(crate) fn format_diff(diff: &Diff, opt: Option<DisplayOptions>) -> String {
+pub(crate) fn format_diff(diff: &Diff, opt: DisplayOptions) -> String {
     let mut output = String::new();
-    format_diff_inner(diff, opt.unwrap_or_default(), 0, &mut output, None);
+    format_diff_inner(diff, opt, 0, &mut output, None);
     output
 }
 

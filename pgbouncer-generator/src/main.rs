@@ -144,7 +144,7 @@ enum Commands {
     Diff {
         #[clap(
             help = "The path of the intermediate definition file",
-            short = 'd',
+            short,
             long,
             default_value = "./generated/pgbouncer_definition.toml",
         )]
@@ -156,6 +156,27 @@ enum Commands {
             default_value = "./generated/pgbouncer.ini",
         )]
         path_pgbouncer_ini: String,
+        #[clap(
+            help = "Flag if decorate the diff output or not",
+            short,
+            long,
+            default_value = "false",
+        )]
+        disable_decorated_output: bool,
+        #[clap(
+            help = "The maximum depth of the diff output if this specified as 0, the diff output will be unlimited",
+            short,
+            long,
+            default_value = "0",
+        )]
+        max_diff_depth: usize,
+        #[clap(
+            help = "Flag if show the same value in the diff output or not",
+            short,
+            long,
+            default_value = "false",
+        )]
+        show_same: bool,
     },
     #[command(about = "Generate pgbouncer.ini file from the definition file")]
     Generate {
@@ -177,9 +198,9 @@ enum Commands {
             help = "Allow to overwrite the pgbouncer.ini file if it exists",
             short,
             long,
-            default_value = "true",
+            default_value = "false",
         )]
-        allow_overwrite: bool,
+        disallow_overwrite: bool,
     },
 }
 
@@ -261,7 +282,13 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         },
-        Commands::Diff { path_def_file, path_pgbouncer_ini } => {
+        Commands::Diff {
+            path_def_file,
+            path_pgbouncer_ini,
+            disable_decorated_output,
+            max_diff_depth,
+            show_same
+        } => {
             let path: &Path = path_def_file.as_str().as_ref();
             let path_pgbouncer_ini: &Path = path_pgbouncer_ini.as_str().as_ref();
 
@@ -270,16 +297,20 @@ async fn main() -> anyhow::Result<()> {
 
             let diff = compute_diff_pg_config(&current_ini, &definition)?;
 
-            let opts = formatter::DisplayOptions::default();
-            let formatted_diff = formatter::format_diff(&diff, Some(opts));
+            let opts = formatter::DisplayOptions::new(
+                !disable_decorated_output,
+                show_same,
+                max_diff_depth
+            );
+            let formatted_diff = formatter::format_diff(&diff, opts);
             println!("{}", formatted_diff);
 
             Ok(())
         },
-        Commands::Generate { path_def_file, path_pgbouncer_ini, allow_overwrite } => {
+        Commands::Generate { path_def_file, path_pgbouncer_ini, disallow_overwrite } => {
             let path: &Path = path_def_file.as_str().as_ref();
             let path_pgbouncer_ini: &Path = path_pgbouncer_ini.as_str().as_ref();
-            if path_pgbouncer_ini.exists() && !allow_overwrite {
+            if path_pgbouncer_ini.exists() && disallow_overwrite {
                 return Err(anyhow::anyhow!("The pgbouncer.ini file already exists, if you want to overwrite it, please use the --allow-overwrite option"));
             }
 
