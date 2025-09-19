@@ -187,14 +187,6 @@ Diff calculation
 - Compute the difference between the current pgbouncer.ini and the intermediate definition (TOML/JSON) and print it as JSON (see the diff subcommand).
 
 
-## Samples (generated/)
-
-- generated/pgbouncer_definition.toml: Example intermediate definition file
-- generated/pgbouncer.ini: Example generated INI
-
-You can regenerate these via the CLI.
-
-
 ## License
 
 - See LICENSE-mit.md and LICENSE-ap.md bundled with this repository (dual-licensed under Apache-2.0 / MIT) for the library/tool license terms.
