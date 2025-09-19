@@ -220,6 +220,8 @@ impl PgBouncerConfigBuilder {
     /// use pgbouncer_config::builder::PgBouncerConfigBuilder;
     /// use pgbouncer_config::pgbouncer_config::Expression;
     /// use pgbouncer_config::pgbouncer_config::{pgbouncer_setting::PgBouncerSetting, databases_setting::DatabasesSetting};
+    /// #[cfg(feature = "diff")]
+    /// use pgbouncer_config::utils::diff::Diffable;
     ///
     /// #[derive(Serialize, Deserialize, Clone, Debug)]
     /// struct Dummy;
@@ -234,6 +236,10 @@ impl PgBouncerConfigBuilder {
     ///         "dummy"
     ///     }
     /// }
+    ///
+    /// #[cfg(feature = "diff")]
+    /// #[typetag::serde]
+    /// impl Diffable for Dummy {}
     ///
     /// fn main() {
     ///     let mut b = PgBouncerConfigBuilder::new(PgBouncerSetting::default(), DatabasesSetting::new()).unwrap();

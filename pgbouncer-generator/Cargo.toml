@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+colored = "3"
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 
-pgbouncer-config = { version = "0.1" , path = "../pgbouncer-config" }
+pgbouncer-config = { version = "0.1" , path = "../pgbouncer-config", features = ["diff"] }

@@ -1,3 +1,5 @@
+mod formatter;
+
 use std::path::Path;
 use clap::{Parser, Subcommand};
 use pgbouncer_config::builder::PgBouncerConfigBuilder;
@@ -7,7 +9,7 @@ use pgbouncer_config::io::write::{Writer, Writers};
 use pgbouncer_config::pgbouncer_config::databases_setting::{Database, DatabasesSetting};
 use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
 use pgbouncer_config::pgbouncer_config::PgBouncerConfig;
-use pgbouncer_config::utils::diff::{compute_diff};
+use pgbouncer_config::utils::diff::{compute_diff_pg_config};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -266,10 +268,11 @@ async fn main() -> anyhow::Result<()> {
             let definition = load_config_from_definition(path, false)?;
             let current_ini = load_config_from_ini(path_pgbouncer_ini)?;
 
-            let diff = compute_diff(&current_ini, &definition)?;
+            let diff = compute_diff_pg_config(&current_ini, &definition)?;
 
-            let diff_str = serde_json::to_string_pretty(&diff)?;
-            println!("{}", diff_str);
+            let opts = formatter::DisplayOptions::default();
+            let formatted_diff = formatter::format_diff(&diff, Some(opts));
+            println!("{}", formatted_diff);
 
             Ok(())
         },

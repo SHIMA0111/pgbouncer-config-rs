@@ -15,14 +15,20 @@
 //! [`PgBouncerConfig`].
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
+#[cfg(feature = "io")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use crate::error::PgBouncerError;
+#[cfg(feature = "io")]
 use crate::pgbouncer_config::databases_setting::DatabasesSetting;
+#[cfg(feature = "io")]
 use crate::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
+#[cfg(feature = "diff")]
+use crate::utils::diff::Diffable;
+#[cfg(feature = "io")]
 use crate::utils::parser::{is_comment, ParserIniFromStr};
 
 pub mod pgbouncer_setting;
@@ -33,6 +39,45 @@ pub mod databases_setting;
 /// Types implementing `Expression` can render themselves to the textual form
 /// used by PgBouncer configuration files or sections. The return value is the
 /// exact text that would appear in pgbouncer.ini for the given node.
+#[cfg(feature = "diff")]
+#[typetag::serde]
+pub trait Expression: ExpressionClone + Any + Debug + Diffable {
+    /// Renders this configuration node to its INI text representation.
+    ///
+    /// # Returns
+    /// A `String` containing the text as it should appear in pgbouncer.ini.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
+    /// use pgbouncer_config::pgbouncer_config::Expression;
+    /// let node = PgBouncerSetting::default();
+    /// let text = node.expr();
+    /// assert!(text.contains("[pgbouncer]"));
+    /// ```
+    fn expr(&self) -> String;
+
+    /// Retrieves the name of the configuration section.
+    ///
+    /// This function should return a string slice representing the name
+    /// of the configuration section. The returned string is static, which
+    /// means it has a lifetime lasting for the duration of the program.
+    /// 
+    /// # Note
+    /// This is **NOT** a section name in `pgbouncer.ini` file.
+    /// This is a section name of the intermediate configuration section.
+    ///
+    /// # Returns
+    /// * `&'static str` - A string slice containing the name of the configuration section.
+    fn config_section_name(&self) -> &'static str;
+}
+
+/// Renderable configuration node.
+///
+/// Types implementing `Expression` can render themselves to the textual form
+/// used by PgBouncer configuration files or sections. The return value is the
+/// exact text that would appear in pgbouncer.ini for the given node.
+#[cfg(not(feature = "diff"))]
 #[typetag::serde]
 pub trait Expression: ExpressionClone + Any + Debug {
     /// Renders this configuration node to its INI text representation.
@@ -55,7 +100,7 @@ pub trait Expression: ExpressionClone + Any + Debug {
     /// This function should return a string slice representing the name
     /// of the configuration section. The returned string is static, which
     /// means it has a lifetime lasting for the duration of the program.
-    /// 
+    ///
     /// # Note
     /// This is **NOT** a section name in `pgbouncer.ini` file.
     /// This is a section name of the intermediate configuration section.
@@ -105,20 +150,16 @@ impl Clone for Box<dyn Expression> {
 /// # Examples
 /// Parse a minimal INI configuration and render it back:
 /// ```rust
-/// use pgbouncer_config::pgbouncer_config::PgBouncerConfig;
-/// use pgbouncer_config::utils::parser::ParserIniFromStr;
+/// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
+/// use pgbouncer_config::pgbouncer_config::databases_setting::DatabasesSetting;
+/// use pgbouncer_config::builder::PgBouncerConfigBuilder;
 ///
-/// let ini = "\
-/// [pgbouncer]\n\
-/// listen_addr = 127.0.0.1\n\
-/// listen_port = 6432\n\
-/// auth_type = md5\n\
-/// max_client_conn = 100\n\
-/// default_pool_size = 20\n\
-/// pool_mode = session\n\
-/// ";
-/// 
-/// let cfg = PgBouncerConfig::parse_from_str(ini).unwrap();
+/// let pgbouncer_setting = PgBouncerSetting::default();
+/// let database_setting = DatabasesSetting::new();
+/// let cfg = PgBouncerConfigBuilder::new(pgbouncer_setting, database_setting)
+///     .unwrap()
+///     .build();
+///
 /// let out = cfg.to_string();
 /// assert!(out.contains("[pgbouncer]"));
 /// // [databases] section is added by default
@@ -127,13 +168,13 @@ impl Clone for Box<dyn Expression> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PgBouncerConfig {
     #[serde(flatten)]
-    settings: HashMap<String, Box<dyn Expression>>,
+    pub(crate) settings: BTreeMap<String, Box<dyn Expression>>,
 }
 
 impl PgBouncerConfig {
     pub(crate) fn new() -> Self {
         Self {
-            settings: HashMap::new(),
+            settings: BTreeMap::new(),
         }
     }
 
@@ -155,21 +196,17 @@ impl PgBouncerConfig {
     ///
     /// # Examples
     /// ```rust
+    /// use pgbouncer_config::builder::PgBouncerConfigBuilder;
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::DatabasesSetting;
     /// use pgbouncer_config::pgbouncer_config::PgBouncerConfig;
     /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
     /// use pgbouncer_config::pgbouncer_config::Expression;
-    /// use pgbouncer_config::utils::parser::ParserIniFromStr;
     ///
-    /// let ini = "\
-    /// [pgbouncer]\n\
-    /// listen_addr = 127.0.0.1\n\
-    /// listen_port = 6432\n\
-    /// auth_type = md5\n\
-    /// max_client_conn = 100\n\
-    /// default_pool_size = 20\n\
-    /// pool_mode = session\n\
-    /// ";
-    /// let cfg = PgBouncerConfig::parse_from_str(ini).unwrap();
+    /// let pgbouncer_setting = PgBouncerSetting::default();
+    /// let database_setting = DatabasesSetting::new();
+    /// let cfg = PgBouncerConfigBuilder::new(pgbouncer_setting, database_setting)
+    ///     .unwrap()
+    ///     .build();
     /// let pgb: &PgBouncerSetting = cfg.get_config::<PgBouncerSetting>().unwrap();
     /// // Access via the Expression trait for demonstration
     /// assert!(pgb.expr().contains("[pgbouncer]"));
@@ -205,20 +242,16 @@ impl PgBouncerConfig {
     ///
     /// # Examples
     /// ```rust
+    /// use pgbouncer_config::builder::PgBouncerConfigBuilder;
     /// use pgbouncer_config::pgbouncer_config::PgBouncerConfig;
     /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
-    /// use pgbouncer_config::utils::parser::ParserIniFromStr;
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::DatabasesSetting;
     ///
-    /// let ini = "\
-    /// [pgbouncer]\n\
-    /// listen_addr = 127.0.0.1\n\
-    /// listen_port = 6432\n\
-    /// auth_type = md5\n\
-    /// max_client_conn = 100\n\
-    /// default_pool_size = 20\n\
-    /// pool_mode = session\n\
-    /// ";
-    /// let mut cfg = PgBouncerConfig::parse_from_str(ini).unwrap();
+    /// let pgbouncer_setting = PgBouncerSetting::default();
+    /// let database_setting = DatabasesSetting::new();
+    /// let mut cfg = PgBouncerConfigBuilder::new(pgbouncer_setting, database_setting)
+    ///     .unwrap()
+    ///     .build();
     /// {
     ///     let pgb: &mut PgBouncerSetting = cfg.get_config_mut::<PgBouncerSetting>().unwrap();
     ///     // Update a setting in place
@@ -284,7 +317,7 @@ impl From<&[&dyn Expression]> for PgBouncerConfig
         let configs = value
             .iter()
             .map(|config| (config.config_section_name().to_string(), config.clone_box()))
-            .collect::<HashMap<String, Box<dyn Expression>>>();
+            .collect::<BTreeMap<String, Box<dyn Expression>>>();
         
         Self {
             settings: configs,
@@ -300,13 +333,17 @@ where
         let configs = value
             .into_iter()
             .map(|config| (config.config_section_name().to_string(), config.clone_box()))
-            .collect::<HashMap<String, Box<dyn Expression>>>();
+            .collect::<BTreeMap<String, Box<dyn Expression>>>();
 
         Self {
             settings: configs,
         }
     }
 }
+
+#[cfg(feature = "diff")]
+#[typetag::serde]
+impl Diffable for PgBouncerConfig {}
 
 #[typetag::serde]
 impl Expression for PgBouncerConfig {
@@ -323,6 +360,7 @@ impl Expression for PgBouncerConfig {
     }
 }
 
+#[cfg(feature = "io")]
 impl ParserIniFromStr for PgBouncerConfig {
     type Error = PgBouncerError;
 
@@ -340,7 +378,7 @@ impl ParserIniFromStr for PgBouncerConfig {
             headers.push((section_name, m.start(), m.end()));
         }
 
-        let mut sections = HashMap::new();
+        let mut sections = BTreeMap::new();
         for (i, (name, _hstart, hend)) in headers.iter().enumerate() {
             let body_start = *hend;
             let body_end = if let Some((_, next_hstart, _)) = headers.get(i + 1) {
@@ -409,6 +447,10 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "diff")]
+    #[typetag::serde]
+    impl Diffable for Dummy {}
+
     #[typetag::serde]
     impl Expression for Dummy2 {
         fn expr(&self) -> String { "dummy2".to_string() }
@@ -418,6 +460,11 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "diff")]
+    #[typetag::serde]
+    impl Diffable for Dummy2 {}
+
+    #[cfg(feature = "io")]
     fn minimal_pgbouncer_section() -> String {
         "\
 [pgbouncer]\n\
@@ -464,6 +511,7 @@ pool_mode = session\n\
         assert!(cfg.expr().contains("dummy2"));
     }
 
+    #[cfg(feature = "io")]
     #[test]
     fn parse_from_str_requires_pgbouncer_section() {
         let ini = "\
@@ -476,6 +524,7 @@ app = dbname=app host=127.0.0.1 port=5432\n\
         };
     }
 
+    #[cfg(feature = "io")]
     #[test]
     fn parse_from_str_minimal_pgbouncer_ok() {
         let ini = minimal_pgbouncer_section();
@@ -486,6 +535,7 @@ app = dbname=app host=127.0.0.1 port=5432\n\
         assert!(text.contains("[databases]"));
     }
 
+    #[cfg(feature = "io")]
     #[test]
     fn parse_from_str_with_databases_and_comments() {
         let ini = "\

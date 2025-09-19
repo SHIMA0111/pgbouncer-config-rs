@@ -1,13 +1,19 @@
+#[cfg(feature = "io")]
 use std::collections::HashMap;
 use std::ops::Index;
 use std::sync::Arc;
 use futures::future::join_all;
+#[cfg(feature = "io")]
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+#[cfg(feature = "io")]
 use crate::error::PgBouncerError;
 use crate::pg_client::PgClient;
 use crate::pgbouncer_config::Expression;
+#[cfg(feature = "diff")]
+use crate::utils::diff::Diffable;
+#[cfg(feature = "io")]
 use crate::utils::parser::{parse_key_value, ParserIniFromStr};
 
 /// Databases section settings.
@@ -231,6 +237,11 @@ impl Expression for DatabasesSetting {
     }
 }
 
+#[cfg(feature = "diff")]
+#[typetag::serde]
+impl Diffable for DatabasesSetting {}
+
+#[cfg(feature = "io")]
 impl ParserIniFromStr for DatabasesSetting {
     type Error = PgBouncerError;
 
@@ -586,6 +597,7 @@ impl Default for Database {
     }
 }
 
+#[cfg(feature = "io")]
 impl ParserIniFromStr for Database {
     type Error = PgBouncerError;
 
@@ -665,6 +677,7 @@ mod tests {
         assert!(text2.contains("password = pass"));
     }
 
+    #[cfg(feature = "io")]
     #[test]
     fn database_parse_from_str_parses_one_line() {
         let line = "app = dbname=app host=127.0.0.1 port=5432 user=postgres password=postgres";

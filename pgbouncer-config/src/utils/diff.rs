@@ -4,8 +4,52 @@
 //! `serde_json::Value`. It detects additions, removals, and changes across
 //! objects (maps), arrays (by index), and scalar values.
 
-use std::collections::BTreeMap;
-use serde::Serialize;
+use std::collections::{BTreeMap, HashMap};
+use serde::{Deserialize, Serialize};
+use crate::pgbouncer_config::PgBouncerConfig;
+
+/// The `Diffable` trait is designed to facilitate the implementation of
+/// objects that can be compared for differences. The `#[typetag::serde]`
+/// attribute is applied to enable serialization and deserialization of
+/// trait objects, which allows for polymorphic behavior when leveraging
+/// Serde for JSON or other formats.
+///
+/// The `tag = "rust_struct_pg_bouncer_config_internal"` parameter is used
+/// for Serde's internal tagging mechanism. This is useful when serializing
+/// or deserializing types that implement the `Diffable` trait. It allows
+/// Serde to store or identify the concrete type of the implementing struct
+/// when working with trait objects.
+///
+/// The `Diffable` trait also extends the `DiffableClone` trait, providing
+/// a cloning mechanism for objects implementing `Diffable`.
+#[typetag::serde(tag = "rust_struct_pg_bouncer_config_internal")]
+pub trait Diffable: DiffableClone {}
+
+/// The `DiffableClone` trait allows cloning of objects that implement the `Diffable` trait
+/// and wraps the clone in a `Box` with dynamic dispatch for use in heterogeneous collections
+/// or trait objects.
+///
+/// This is particularly useful in scenarios where object cloning needs to be paired with a
+/// dynamic runtime polymorphism, enabling operations such as comparison or "diff" functionality
+/// between objects implementing the `Diffable` trait.
+pub trait DiffableClone {
+    fn diffable_clone(&self) -> Box<dyn Diffable>;
+}
+
+impl <T> DiffableClone for T
+where
+    T: Clone + Diffable + 'static,
+{
+    fn diffable_clone(&self) -> Box<dyn Diffable> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Diffable> {
+    fn clone(&self) -> Self {
+        self.diffable_clone()
+    }
+}
 
 /// Structured diff between two serializable values.
 ///
@@ -25,7 +69,7 @@ use serde::Serialize;
 #[serde(tag = "kind")]
 pub enum Diff {
     /// Both sides are equal (no difference).
-    Same,
+    Same { value: String },
     /// Unevaluated like credential fields indicates '<hidden>' which cannot
     /// judge if it is the same or not.
     Unevaluated,
@@ -65,6 +109,31 @@ pub enum Diff {
     },
 }
 
+/// Computes the difference between two PgBouncer configuration objects.
+///
+/// This function takes two references to `PgBouncerConfig`, converts them into
+/// a `DiffablePgBouncerConfig` format that supports structural diffing, and
+/// returns the computed difference as a `Diff` object. The operation can fail
+/// if there are errors during the diff computation process.
+///
+/// # Parameters
+///
+/// - `old`: A reference to the original `PgBouncerConfig` object.
+/// - `new`: A reference to the new `PgBouncerConfig` object.
+///
+/// # Returns
+///
+/// - `Ok(Diff)`: If the difference is successfully computed.
+/// - `Err(crate::error::Error)`: If an error occurs during the diff computation.
+///
+pub fn compute_diff_pg_config(old: &PgBouncerConfig, new: &PgBouncerConfig) -> crate::error::Result<Diff> {
+    let diffable_old = DiffablePgBouncerConfig::from(old.clone());
+    let diffable_new = DiffablePgBouncerConfig::from(new.clone());
+
+    compute_diff(&diffable_old, &diffable_new)
+}
+
+
 /// Computes a structured diff between two serializable values.
 ///
 /// # Parameters
@@ -87,7 +156,7 @@ pub enum Diff {
 /// assert!(matches!(d, Diff::Changed { .. }));
 ///
 /// let d2 = compute_diff(&"a", &"a").unwrap();
-/// assert!(matches!(d2, Diff::Same));
+/// assert!(matches!(d2, Diff::Same { value: _ }));
 /// ```
 ///
 /// A map/object example with added and removed keys:
@@ -107,6 +176,7 @@ pub enum Diff {
 pub fn compute_diff<T: Serialize>(old: &T, new: &T) -> crate::error::Result<Diff> {
     let old_v = serde_json::to_value(old)?;
     let new_v = serde_json::to_value(new)?;
+
     Ok(diff_value(&old_v, &new_v))
 }
 
@@ -115,9 +185,17 @@ fn diff_value(old: &serde_json::Value, new: &serde_json::Value) -> Diff {
         (serde_json::Value::Object(old), serde_json::Value::Object(new)) => {
             let mut keys: BTreeMap<String, ()> = BTreeMap::new();
             for k in old.keys() {
+                if k == "rust_struct_pg_bouncer_config_internal" {
+                    continue;
+                }
+
                 keys.insert(k.clone(), ());
             }
             for k in new.keys() {
+                if k == "rust_struct_pg_bouncer_config_internal" {
+                    continue;
+                }
+
                 keys.insert(k.clone(), ());
             }
 
@@ -141,7 +219,7 @@ fn diff_value(old: &serde_json::Value, new: &serde_json::Value) -> Diff {
                 }
             }
             if fields.is_empty() {
-                Diff::Same
+                Diff::Same { value: "".to_string() }
             } else {
                 Diff::Object { fields }
             }
@@ -153,7 +231,7 @@ fn diff_value(old: &serde_json::Value, new: &serde_json::Value) -> Diff {
                 match (old.get(i), new.get(i)) {
                     (Some(old_val), Some(new_val)) => {
                         let d = diff_value(old_val, new_val);
-                        if !matches!(d, Diff::Same) {
+                        if !matches!(d, Diff::Same { value: _ }) {
                             items.push((i, d));
                         }
                     },
@@ -167,18 +245,41 @@ fn diff_value(old: &serde_json::Value, new: &serde_json::Value) -> Diff {
                 }
             }
             if items.is_empty() {
-                Diff::Same
+                Diff::Same { value: "".to_string() }
             } else {
                 Diff::Array { items }
             }
         },
         _ => {
             if old == new {
-                Diff::Same
+                Diff::Same { value: old.to_string() }
             } else {
                 Diff::Changed { old: old.to_string(), new: new.to_string() }
             }
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct DiffablePgBouncerConfig {
+    #[serde(flatten)]
+    settings: HashMap<String, Box<dyn Diffable>>,
+}
+
+#[typetag::serde]
+impl Diffable for DiffablePgBouncerConfig {}
+
+impl From<PgBouncerConfig> for DiffablePgBouncerConfig {
+
+    fn from(value: PgBouncerConfig) -> Self {
+        let mut settings = HashMap::new();
+
+        for (key, setting) in value.settings {
+            let diffable_setting = setting.diffable_clone();
+            settings.insert(key, diffable_setting);
+        }
+
+        DiffablePgBouncerConfig { settings }
     }
 }
 
@@ -194,7 +295,7 @@ mod tests {
         let c = 2i32;
 
         let d_ab = compute_diff(&a, &b).expect("ok");
-        assert_eq!(d_ab, Diff::Same);
+        assert_eq!(d_ab, Diff::Same { value: "1".to_string() });
 
         let d_ac = compute_diff(&a, &c).expect("ok");
         assert_eq!(d_ac, Diff::Changed { old: "1".to_string(), new: "2".to_string() });
@@ -284,6 +385,6 @@ mod tests {
         let v1 = vec!["a", "b"];
         let v2 = vec!["a", "b"];
         let d = compute_diff(&v1, &v2).expect("ok");
-        assert_eq!(d, Diff::Same);
+        assert_eq!(d, Diff::Same { value: "".to_string() });
     }
 }

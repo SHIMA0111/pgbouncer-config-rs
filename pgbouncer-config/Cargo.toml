@@ -14,8 +14,8 @@ thiserror = "2"
 # Structured/Parser
 serde = { version = "1", features = ["derive"] }
 typetag = "0.2"
-toml = "0.9"
-serde_json = "1"
+toml = { version = "0.9", optional = true }
+serde_json = { version = "1", optional = true }
 regex = "1"
 
 # Hash
@@ -27,3 +27,8 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-native-tls"] }
 # async/await
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
+
+[features]
+default = []
+diff = ["io"]
+io = ["toml", "serde_json"]
