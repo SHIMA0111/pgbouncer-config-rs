@@ -15,7 +15,7 @@
 //! [`PgBouncerConfig`].
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
 use regex::Regex;
@@ -127,13 +127,13 @@ impl Clone for Box<dyn Expression> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PgBouncerConfig {
     #[serde(flatten)]
-    settings: BTreeMap<String, Box<dyn Expression>>,
+    settings: HashMap<String, Box<dyn Expression>>,
 }
 
 impl PgBouncerConfig {
     pub(crate) fn new() -> Self {
         Self {
-            settings: BTreeMap::new(),
+            settings: HashMap::new(),
         }
     }
 
@@ -284,7 +284,7 @@ impl From<&[&dyn Expression]> for PgBouncerConfig
         let configs = value
             .iter()
             .map(|config| (config.config_section_name().to_string(), config.clone_box()))
-            .collect::<BTreeMap<String, Box<dyn Expression>>>();
+            .collect::<HashMap<String, Box<dyn Expression>>>();
         
         Self {
             settings: configs,
@@ -300,7 +300,7 @@ where
         let configs = value
             .into_iter()
             .map(|config| (config.config_section_name().to_string(), config.clone_box()))
-            .collect::<BTreeMap<String, Box<dyn Expression>>>();
+            .collect::<HashMap<String, Box<dyn Expression>>>();
 
         Self {
             settings: configs,

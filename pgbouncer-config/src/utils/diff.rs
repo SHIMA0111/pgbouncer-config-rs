@@ -26,6 +26,9 @@ use serde::Serialize;
 pub enum Diff {
     /// Both sides are equal (no difference).
     Same,
+    /// Unevaluated like credential fields indicates '<hidden>' which cannot
+    /// judge if it is the same or not.
+    Unevaluated,
     /// A scalar value or element changed.
     ///
     /// The `old` and `new` fields contain JSON-serialized representations
@@ -122,7 +125,11 @@ fn diff_value(old: &serde_json::Value, new: &serde_json::Value) -> Diff {
             for k in keys.keys() {
                 match (old.get(k), new.get(k)) {
                     (Some(old), Some(new)) => {
-                        fields.insert(k.clone(), diff_value(old, new));
+                        if vec!["password", "user"].contains(&k.as_str()) && old == "<hidden>" || new == "<hidden>" {
+                            fields.insert(k.clone(), Diff::Unevaluated);
+                        } else {
+                            fields.insert(k.clone(), diff_value(old, new));
+                        }
                     },
                     (Some(old), None) => {
                         fields.insert(k.clone(), Diff::Removed { old: old.to_string() });

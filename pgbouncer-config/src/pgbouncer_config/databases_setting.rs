@@ -628,8 +628,8 @@ impl ParserIniFromStr for Database {
         Ok(Database::new(
             &host,
             port,
-            user.as_deref().unwrap_or("<nothing>"),
-            password.as_deref().unwrap_or("<nothing>"),
+            user.as_deref().unwrap_or("<hidden>"),
+            password.as_deref().unwrap_or("<hidden>"),
             Some(&db_names),
         ))
     }
