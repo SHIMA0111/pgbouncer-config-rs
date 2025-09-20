@@ -171,7 +171,7 @@ impl PgBouncerConfigBuilder {
                 "Cannot replace pgbouncer-config setting before pgbouncer-config setting is set".to_string()
             ))
         }
-        let section_name = pgbouncer_setting.config_section_name();
+        let section_name = pgbouncer_setting.section_name();
         self.config[&section_name] = Box::new(pgbouncer_setting);
         Ok(self)
     }
@@ -201,7 +201,7 @@ impl PgBouncerConfigBuilder {
                 "Cannot replace databases setting before databases setting is set".to_string()
             ))
         }
-        let section_name = databases_setting.config_section_name();
+        let section_name = databases_setting.section_name();
         self.config[&section_name] = Box::new(databases_setting);
         Ok(self)
     }
@@ -231,10 +231,6 @@ impl PgBouncerConfigBuilder {
     ///     fn expr(&self) -> String {
     ///         "dummy".to_string()
     ///     }
-    ///
-    ///     fn config_section_name(&self) -> &'static str {
-    ///         "dummy"
-    ///     }
     /// }
     ///
     /// #[cfg(feature = "diff")]
@@ -247,6 +243,8 @@ impl PgBouncerConfigBuilder {
     ///     let conf = b.build();
     ///
     ///     assert!(conf.expr().contains("dummy"));
+    ///     let dummy_ref = conf.get_config::<Dummy>().unwrap();
+    ///     assert_eq!(dummy_ref.section_name(), "dummy");
     /// }
     /// ```
     pub fn add_config<C: Expression + 'static>(&mut self, config: C) -> crate::error::Result<&mut Self> {
@@ -286,6 +284,6 @@ fn test_builder() {
 
     // Only two unique sections should exist
     assert_eq!(config.len(), 2);
-    assert!(config[PgBouncerSetting::default().config_section_name()].expr().contains("pgbouncer"));
-    assert!(config[DatabasesSetting::new().config_section_name()].expr().contains("databases"));
+    assert!(config[&PgBouncerSetting::default().section_name()].expr().contains("pgbouncer"));
+    assert!(config[&DatabasesSetting::new().section_name()].expr().contains("databases"));
 }

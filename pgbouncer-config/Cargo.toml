@@ -11,6 +11,9 @@ repository = "https://github.com/SHIMA0111/pgbouncer-config-rs"
 # Error
 thiserror = "2"
 
+# Formatter
+heck = "0.5"
+
 # Structured/Parser
 serde = { version = "1", features = ["derive"] }
 typetag = "0.2"

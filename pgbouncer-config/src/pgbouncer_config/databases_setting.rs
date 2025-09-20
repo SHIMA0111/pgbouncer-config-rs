@@ -232,8 +232,8 @@ impl Expression for DatabasesSetting {
         expr
     }
 
-    fn config_section_name(&self) -> &'static str {
-        "DataBaseInfo"
+    fn section_name(&self) -> &'static str {
+        "databases"
     }
 }
 

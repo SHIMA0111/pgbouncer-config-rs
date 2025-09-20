@@ -1030,8 +1030,8 @@ impl Expression for PgBouncerSetting {
         expr
     }
 
-    fn config_section_name(&self) -> &'static str {
-        "PgBouncerInfo"
+    fn section_name(&self) -> &'static str {
+        "pgbouncer"
     }
 }
 

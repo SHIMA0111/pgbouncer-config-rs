@@ -1092,6 +1092,7 @@ name = "pgbouncer-config"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "heck",
  "md-5",
  "regex",
  "serde",

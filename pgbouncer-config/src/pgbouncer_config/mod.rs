@@ -14,10 +14,11 @@
 //! available via the [`ParserIniFromStr`] trait implementation for
 //! [`PgBouncerConfig`].
 
-use std::any::Any;
+use std::any::{type_name, Any};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
+use heck::ToKebabCase;
 use serde::{Deserialize, Serialize};
 use crate::error::PgBouncerError;
 #[cfg(feature = "io")]
@@ -57,19 +58,51 @@ pub trait Expression: ExpressionClone + Any + Debug + Diffable {
     /// ```
     fn expr(&self) -> String;
 
-    /// Retrieves the name of the configuration section.
+    /// Returns the name of the section corresponding to the struct's type.
     ///
-    /// This function should return a string slice representing the name
-    /// of the configuration section. The returned string is static, which
-    /// means it has a lifetime lasting for the duration of the program.
-    /// 
-    /// # Note
-    /// This is **NOT** a section name in `pgbouncer.ini` file.
-    /// This is a section name of the intermediate configuration section.
+    /// This method provides a default implementation that uses the structure's type name
+    /// (as obtained via `type_name::<Self>()`) to determine the section name.
+    ///
+    /// Specifically:
+    /// - If the fully-qualified type name contains namespace information (e.g., modules),
+    ///   the method extracts and returns only the final part of the path (the struct name).
+    /// - If no "::" delimiters are found in the type name (unlikely in regular use), it
+    ///   simply returns the entire type name as-is.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// struct MyStruct;
+    ///
+    /// impl MyStruct {
+    ///     fn section_name(&self) -> String {
+    ///         // Default implementation
+    ///         let full_path = std::any::type_name::<Self>();
+    ///         if let Some(struct_name) = full_path.split("::").last() {
+    ///             struct_name.to_string()
+    ///         } else {
+    ///             full_path.to_string()
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let instance = MyStruct;
+    /// assert_eq!(instance.section_name(), "MyStruct".to_string());
+    /// ```
     ///
     /// # Returns
-    /// * `&'static str` - A string slice containing the name of the configuration section.
-    fn config_section_name(&self) -> &'static str;
+    /// - A `String` containing the extracted name of the struct.
+    fn section_name(&self) -> &'static str {
+        let full_path = type_name::<Self>();
+        let section_name = if let Some(struct_name) = full_path.split("::").last() {
+            struct_name
+        } else {
+            full_path
+        };
+
+        let boxed_data = Box::new(section_name.to_kebab_case());
+        Box::leak(boxed_data)
+    }
 }
 
 /// Renderable configuration node.
@@ -95,19 +128,48 @@ pub trait Expression: ExpressionClone + Any + Debug {
     /// ```
     fn expr(&self) -> String;
 
-    /// Retrieves the name of the configuration section.
+    /// Returns the name of the section corresponding to the struct's type.
     ///
-    /// This function should return a string slice representing the name
-    /// of the configuration section. The returned string is static, which
-    /// means it has a lifetime lasting for the duration of the program.
+    /// This method provides a default implementation that uses the structure's type name
+    /// (as obtained via `type_name::<Self>()`) to determine the section name.
     ///
-    /// # Note
-    /// This is **NOT** a section name in `pgbouncer.ini` file.
-    /// This is a section name of the intermediate configuration section.
+    /// Specifically:
+    /// - If the fully-qualified type name contains namespace information (e.g., modules),
+    ///   the method extracts and returns only the final part of the path (the struct name).
+    /// - If no "::" delimiters are found in the type name (unlikely in regular use), it
+    ///   simply returns the entire type name as-is.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// struct MyStruct;
+    ///
+    /// impl MyStruct {
+    ///     fn section_name(&self) -> String {
+    ///         // Default implementation
+    ///         let full_path = std::any::type_name::<Self>();
+    ///         if let Some(struct_name) = full_path.split("::").last() {
+    ///             struct_name.to_string()
+    ///         } else {
+    ///             full_path.to_string()
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let instance = MyStruct;
+    /// assert_eq!(instance.section_name(), "MyStruct".to_string());
+    /// ```
     ///
     /// # Returns
-    /// * `&'static str` - A string slice containing the name of the configuration section.
-    fn config_section_name(&self) -> &'static str;
+    /// - A `String` containing the extracted name of the struct.
+    fn section_name(&self) -> &'static str {
+        let full_path = type_name::<Self>();
+        if let Some(struct_name) = full_path.split("::").last() {
+            struct_name
+        } else {
+            full_path
+        }
+    }
 }
 
 /// Helper trait to enable cloning of trait objects (`Box<dyn Expression>`).
@@ -277,10 +339,10 @@ impl PgBouncerConfig {
     }
 
     pub(crate) fn add_config<C: Expression + 'static>(&mut self, config: C) -> crate::error::Result<()> {
-        if self.settings.contains_key(config.config_section_name()) {
-            return Err(PgBouncerError::PgBouncer(format!("section {} already exists", config.config_section_name())));
+        if self.settings.contains_key(config.section_name()) {
+            return Err(PgBouncerError::PgBouncer(format!("section {} already exists", config.section_name())));
         }
-        self.settings.insert(config.config_section_name().to_string(), config.clone_box());
+        self.settings.insert(config.section_name().to_string(), config.clone_box());
 
         Ok(())
     }
@@ -316,7 +378,7 @@ impl From<&[&dyn Expression]> for PgBouncerConfig
     fn from(value: &[&dyn Expression]) -> Self {
         let configs = value
             .iter()
-            .map(|config| (config.config_section_name().to_string(), config.clone_box()))
+            .map(|config| (config.section_name().to_string(), config.clone_box()))
             .collect::<BTreeMap<String, Box<dyn Expression>>>();
         
         Self {
@@ -332,7 +394,7 @@ where
     fn from(value: &[C]) -> Self {
         let configs = value
             .into_iter()
-            .map(|config| (config.config_section_name().to_string(), config.clone_box()))
+            .map(|config| (config.section_name().to_string(), config.clone_box()))
             .collect::<BTreeMap<String, Box<dyn Expression>>>();
 
         Self {
@@ -352,7 +414,7 @@ impl Expression for PgBouncerConfig {
             .join("\n")
     }
 
-    fn config_section_name(&self) -> &'static str {
+    fn section_name(&self) -> &'static str {
         "pgbouncer-config"
     }
 }
@@ -443,7 +505,7 @@ mod tests {
     impl Expression for Dummy {
         fn expr(&self) -> String { "dummy".to_string() }
 
-        fn config_section_name(&self) -> &'static str {
+        fn section_name(&self) -> &'static str {
             "dummy"
         }
     }
@@ -456,7 +518,7 @@ mod tests {
     impl Expression for Dummy2 {
         fn expr(&self) -> String { "dummy2".to_string() }
 
-        fn config_section_name(&self) -> &'static str {
+        fn section_name(&self) -> &'static str {
             "dummy2"
         }
     }
@@ -485,12 +547,12 @@ pool_mode = session\n\
         cfg.add_config(Dummy).unwrap();
         assert_eq!(cfg.len(), 1);
         // Index and display via expr
-        assert_eq!(cfg[Dummy.config_section_name()].expr(), "dummy");
+        assert_eq!(cfg[&Dummy.section_name()].expr(), "dummy");
         assert_eq!(format!("{}", cfg), "dummy");
 
         // IndexMut allows modifying element in place
-        cfg[Dummy.config_section_name()] = Box::new(Dummy);
-        assert_eq!(cfg[Dummy.config_section_name()].expr(), "dummy");
+        cfg[&Dummy.section_name()] = Box::new(Dummy);
+        assert_eq!(cfg[&Dummy.section_name()].expr(), "dummy");
     }
 
     #[test]
