@@ -14,7 +14,7 @@
 //! available via the [`ParserIniFromStr`] trait implementation for
 //! [`PgBouncerConfig`].
 
-use std::any::{type_name, Any, TypeId};
+use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
@@ -39,155 +39,90 @@ pub mod databases_setting;
 static EXPRESSION_DEFAULT_SECTION_NAME: LazyLock<Mutex<HashMap<TypeId, &'static str>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Renderable configuration node.
-///
-/// Types implementing `Expression` can render themselves to the textual form
-/// used by PgBouncer configuration files or sections. The return value is the
-/// exact text that would appear in pgbouncer.ini for the given node.
+macro_rules! define_expression {
+    ($($bound:tt)*) => {
+        /// Renderable configuration node.
+        ///
+        /// Types implementing `Expression` can render themselves to the textual form
+        /// used by PgBouncer configuration files or sections. The return value is the
+        /// exact text that would appear in pgbouncer.ini for the given node.
+        #[typetag::serde]
+        pub trait Expression: ExpressionClone + Any + Debug + $($bound)* {
+            /// Renders this configuration node to its INI text representation.
+            ///
+            /// # Returns
+            /// A `String` containing the text as it should appear in pgbouncer.ini.
+            ///
+            /// # Examples
+            /// ```rust
+            /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
+            /// use pgbouncer_config::pgbouncer_config::Expression;
+            /// let node = PgBouncerSetting::default();
+            /// let text = node.expr();
+            /// assert!(text.contains("[pgbouncer]"));
+            /// ```
+            fn expr(&self) -> String;
+            /// Returns the name of the section corresponding to the struct's type.
+            ///
+            /// This method provides a default implementation that uses the structure's type name
+            /// (as obtained via `type_name::<Self>()`) to determine the section name.
+            ///
+            /// Specifically:
+            /// - If the fully-qualified type name contains namespace information (e.g., modules),
+            ///   the method extracts and returns only the final part of the path (the struct name).
+            /// - If no "::" delimiters are found in the type name (unlikely in regular use), it
+            ///   simply returns the entire type name as-is.
+            ///
+            /// # Example
+            ///
+            /// ```
+            /// struct MyStruct;
+            ///
+            /// impl MyStruct {
+            ///     fn section_name(&self) -> String {
+            ///         // Default implementation
+            ///         let full_path = std::any::type_name::<Self>();
+            ///         if let Some(struct_name) = full_path.split("::").last() {
+            ///             struct_name.to_string()
+            ///         } else {
+            ///             full_path.to_string()
+            ///         }
+            ///     }
+            /// }
+            ///
+            /// let instance = MyStruct;
+            /// assert_eq!(instance.section_name(), "MyStruct".to_string());
+            /// ```
+            ///
+            /// # Returns
+            /// - A `&'static str` containing the extracted name of the struct.
+            fn section_name(&self) -> &'static str {
+                let type_id = TypeId::of::<Self>();
+                let mut cache_data = EXPRESSION_DEFAULT_SECTION_NAME.lock().unwrap();
+
+                cache_data
+                    .entry(type_id)
+                    .or_insert_with(|| {
+                        let full_path = std::any::type_name::<Self>();
+                        let section_name = if let Some(struct_name) = full_path.split("::").last() {
+                            struct_name
+                        } else {
+                            full_path
+                        };
+                        let kebab_section_name = section_name.to_kebab_case();
+                        Box::leak(kebab_section_name.into_boxed_str())
+                    })
+            }
+        }
+    };
+}
+
+
 #[cfg(feature = "diff")]
-#[typetag::serde]
-pub trait Expression: ExpressionClone + Any + Debug + Diffable {
-    /// Renders this configuration node to its INI text representation.
-    ///
-    /// # Returns
-    /// A `String` containing the text as it should appear in pgbouncer.ini.
-    ///
-    /// # Examples
-    /// ```rust
-    /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
-    /// use pgbouncer_config::pgbouncer_config::Expression;
-    /// let node = PgBouncerSetting::default();
-    /// let text = node.expr();
-    /// assert!(text.contains("[pgbouncer]"));
-    /// ```
-    fn expr(&self) -> String;
+define_expression!(Diffable);
 
-    /// Returns the name of the section corresponding to the struct's type.
-    ///
-    /// This method provides a default implementation that uses the structure's type name
-    /// (as obtained via `type_name::<Self>()`) to determine the section name.
-    ///
-    /// Specifically:
-    /// - If the fully-qualified type name contains namespace information (e.g., modules),
-    ///   the method extracts and returns only the final part of the path (the struct name).
-    /// - If no "::" delimiters are found in the type name (unlikely in regular use), it
-    ///   simply returns the entire type name as-is.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// struct MyStruct;
-    ///
-    /// impl MyStruct {
-    ///     fn section_name(&self) -> String {
-    ///         // Default implementation
-    ///         let full_path = std::any::type_name::<Self>();
-    ///         if let Some(struct_name) = full_path.split("::").last() {
-    ///             struct_name.to_string()
-    ///         } else {
-    ///             full_path.to_string()
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// let instance = MyStruct;
-    /// assert_eq!(instance.section_name(), "MyStruct".to_string());
-    /// ```
-    ///
-    /// # Returns
-    /// - A `String` containing the extracted name of the struct.
-    fn section_name(&self) -> &'static str {
-        let type_id = TypeId::of::<Self>();
-        let mut cache_data = EXPRESSION_DEFAULT_SECTION_NAME.lock().unwrap();
-        cache_data
-            .entry(type_id)
-            .or_insert_with(|| {
-                let full_path = type_name::<Self>();
-                let section_name = if let Some(struct_name) = full_path.split("::").last() {
-                    struct_name
-                } else {
-                    full_path
-                };
-                let kebab_section_name = section_name.to_kebab_case();
-                Box::leak(kebab_section_name.into_boxed_str())
-            })
-    }
-}
-
-/// Renderable configuration node.
-///
-/// Types implementing `Expression` can render themselves to the textual form
-/// used by PgBouncer configuration files or sections. The return value is the
-/// exact text that would appear in pgbouncer.ini for the given node.
 #[cfg(not(feature = "diff"))]
-#[typetag::serde]
-pub trait Expression: ExpressionClone + Any + Debug {
-    /// Renders this configuration node to its INI text representation.
-    ///
-    /// # Returns
-    /// A `String` containing the text as it should appear in pgbouncer.ini.
-    ///
-    /// # Examples
-    /// ```rust
-    /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
-    /// use pgbouncer_config::pgbouncer_config::Expression;
-    /// let node = PgBouncerSetting::default();
-    /// let text = node.expr();
-    /// assert!(text.contains("[pgbouncer]"));
-    /// ```
-    fn expr(&self) -> String;
-
-    /// Returns the name of the section corresponding to the struct's type.
-    ///
-    /// This method provides a default implementation that uses the structure's type name
-    /// (as obtained via `type_name::<Self>()`) to determine the section name.
-    ///
-    /// Specifically:
-    /// - If the fully-qualified type name contains namespace information (e.g., modules),
-    ///   the method extracts and returns only the final part of the path (the struct name).
-    /// - If no "::" delimiters are found in the type name (unlikely in regular use), it
-    ///   simply returns the entire type name as-is.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// struct MyStruct;
-    ///
-    /// impl MyStruct {
-    ///     fn section_name(&self) -> String {
-    ///         // Default implementation
-    ///         let full_path = std::any::type_name::<Self>();
-    ///         if let Some(struct_name) = full_path.split("::").last() {
-    ///             struct_name.to_string()
-    ///         } else {
-    ///             full_path.to_string()
-    ///         }
-    ///     }
-    /// }
-    ///
-    /// let instance = MyStruct;
-    /// assert_eq!(instance.section_name(), "MyStruct".to_string());
-    /// ```
-    ///
-    /// # Returns
-    /// - A `String` containing the extracted name of the struct.
-    fn section_name(&self) -> &'static str {
-        let type_id = TypeId::of::<Self>();
-        let mut cache_data = EXPRESSION_DEFAULT_SECTION_NAME.lock().unwrap();
-        cache_data
-            .entry(type_id)
-            .or_insert_with(|| {
-                let full_path = type_name::<Self>();
-                let section_name = if let Some(struct_name) = full_path.split("::").last() {
-                    struct_name
-                } else {
-                    full_path
-                };
-                let kebab_section_name = section_name.to_kebab_case();
-                Box::leak(kebab_section_name.into_boxed_str())
-            })
-    }
-}
+define_expression!();
 
 /// Helper trait to enable cloning of trait objects (`Box<dyn Expression>`).
 ///
