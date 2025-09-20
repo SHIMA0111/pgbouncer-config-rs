@@ -164,11 +164,14 @@ pub trait Expression: ExpressionClone + Any + Debug {
     /// - A `String` containing the extracted name of the struct.
     fn section_name(&self) -> &'static str {
         let full_path = type_name::<Self>();
-        if let Some(struct_name) = full_path.split("::").last() {
+        let section_name = if let Some(struct_name) = full_path.split("::").last() {
             struct_name
         } else {
             full_path
-        }
+        };
+
+        let boxed_data = Box::new(section_name.to_kebab_case());
+        Box::leak(boxed_data)
     }
 }
 
