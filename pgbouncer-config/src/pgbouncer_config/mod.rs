@@ -14,10 +14,11 @@
 //! available via the [`ParserIniFromStr`] trait implementation for
 //! [`PgBouncerConfig`].
 
-use std::any::{type_name, Any};
-use std::collections::BTreeMap;
+use std::any::{type_name, Any, TypeId};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Debug, Display};
 use std::ops::{Index, IndexMut};
+use std::sync::{LazyLock, Mutex};
 use heck::ToKebabCase;
 use serde::{Deserialize, Serialize};
 use crate::error::PgBouncerError;
@@ -34,6 +35,9 @@ use crate::utils::diff::Diffable;
 
 pub mod pgbouncer_setting;
 pub mod databases_setting;
+
+static EXPRESSION_DEFAULT_SECTION_NAME: LazyLock<Mutex<HashMap<TypeId, &'static str>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Renderable configuration node.
 ///
@@ -93,15 +97,20 @@ pub trait Expression: ExpressionClone + Any + Debug + Diffable {
     /// # Returns
     /// - A `String` containing the extracted name of the struct.
     fn section_name(&self) -> &'static str {
-        let full_path = type_name::<Self>();
-        let section_name = if let Some(struct_name) = full_path.split("::").last() {
-            struct_name
-        } else {
-            full_path
-        };
-
-        let boxed_data = Box::new(section_name.to_kebab_case());
-        Box::leak(boxed_data)
+        let type_id = TypeId::of::<Self>();
+        let mut cache_data = EXPRESSION_DEFAULT_SECTION_NAME.lock().unwrap();
+        cache_data
+            .entry(type_id)
+            .or_insert_with(|| {
+                let full_path = type_name::<Self>();
+                let section_name = if let Some(struct_name) = full_path.split("::").last() {
+                    struct_name
+                } else {
+                    full_path
+                };
+                let kebab_section_name = section_name.to_kebab_case();
+                Box::leak(kebab_section_name.into_boxed_str())
+            })
     }
 }
 
@@ -163,15 +172,20 @@ pub trait Expression: ExpressionClone + Any + Debug {
     /// # Returns
     /// - A `String` containing the extracted name of the struct.
     fn section_name(&self) -> &'static str {
-        let full_path = type_name::<Self>();
-        let section_name = if let Some(struct_name) = full_path.split("::").last() {
-            struct_name
-        } else {
-            full_path
-        };
-
-        let boxed_data = Box::new(section_name.to_kebab_case());
-        Box::leak(boxed_data)
+        let type_id = TypeId::of::<Self>();
+        let mut cache_data = EXPRESSION_DEFAULT_SECTION_NAME.lock().unwrap();
+        cache_data
+            .entry(type_id)
+            .or_insert_with(|| {
+                let full_path = type_name::<Self>();
+                let section_name = if let Some(struct_name) = full_path.split("::").last() {
+                    struct_name
+                } else {
+                    full_path
+                };
+                let kebab_section_name = section_name.to_kebab_case();
+                Box::leak(kebab_section_name.into_boxed_str())
+            })
     }
 }
 
