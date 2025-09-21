@@ -215,21 +215,18 @@ impl Expression for DatabasesSetting {
     ///
     /// let mut settings = DatabasesSetting::new();
     /// settings.add_database(Database::default());
-    /// let text = settings.expr();
+    /// let text = settings.expr().unwrap();
     /// assert!(text.starts_with("[databases]\n"));
     /// ```
-    fn expr(&self) -> String {
-        let mut expr = "[databases]\n".to_string();
+    fn expr(&self) -> crate::error::Result<String> {
+        let mut text = String::new();
+        text.push_str("[databases]\n");
+        for database in &self.databases {
+            text.push_str(&format!("{}\n", database.expr()));
+            text.push_str("\n");
+        }
 
-        expr.push_str(
-            &self.databases
-                .iter()
-                .map(|database| database.expr())
-                .collect::<Vec<String>>()
-                .join("\n")
-        );
-
-        expr
+        Ok(text)
     }
 
     fn section_name(&self) -> &'static str {
@@ -654,7 +651,7 @@ mod tests {
     #[test]
     fn databases_setting_expr_starts_with_header() {
         let settings = DatabasesSetting::new();
-        let text = settings.expr();
+        let text = settings.expr().unwrap();
         assert!(text.starts_with("[databases]\n"));
     }
 

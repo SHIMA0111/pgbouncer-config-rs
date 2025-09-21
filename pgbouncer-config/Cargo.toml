@@ -31,7 +31,12 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-native-tls"] }
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 
+# derive
+pgbouncer-config-derive = { version = "0.1", path = "../pgbouncer-config-derive", optional = true }
+
 [features]
 default = []
 diff = ["io"]
 io = ["toml", "serde_json"]
+derive = ["pgbouncer-config-derive", "serde_json"]
+full = ["diff", "derive"]

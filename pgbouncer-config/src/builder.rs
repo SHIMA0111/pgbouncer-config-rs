@@ -228,8 +228,8 @@ impl PgBouncerConfigBuilder {
     ///
     /// #[typetag::serde]
     /// impl Expression for Dummy {
-    ///     fn expr(&self) -> String {
-    ///         "dummy".to_string()
+    ///     fn expr(&self) -> crate::pgbouncer_config::error::Result<String> {
+    ///         Ok("dummy".to_string())
     ///     }
     /// }
     ///
@@ -242,7 +242,7 @@ impl PgBouncerConfigBuilder {
     ///     b.add_config(Dummy).unwrap();
     ///     let conf = b.build();
     ///
-    ///     assert!(conf.expr().contains("dummy"));
+    ///     assert!(conf.expr().unwrap().contains("dummy"));
     ///     let dummy_ref = conf.get_config::<Dummy>().unwrap();
     ///     assert_eq!(dummy_ref.section_name(), "dummy");
     /// }
@@ -284,6 +284,6 @@ fn test_builder() {
 
     // Only two unique sections should exist
     assert_eq!(config.len(), 2);
-    assert!(config[&PgBouncerSetting::default().section_name()].expr().contains("pgbouncer"));
-    assert!(config[&DatabasesSetting::new().section_name()].expr().contains("databases"));
+    assert!(config[&PgBouncerSetting::default().section_name()].expr().unwrap().contains("pgbouncer"));
+    assert!(config[&DatabasesSetting::new().section_name()].expr().unwrap().contains("databases"));
 }

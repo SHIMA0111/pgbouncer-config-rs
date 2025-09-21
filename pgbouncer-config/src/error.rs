@@ -18,10 +18,22 @@ pub enum PgBouncerError {
     #[cfg(feature = "io")]
     #[error("Serialize Error: {0}")]
     Serialize(#[from] toml::ser::Error),
-    #[cfg(feature = "io")]
+    #[cfg(any(feature = "io", feature = "derive"))]
     #[error("JSON Error: {0}")]
     SerdeJson(#[from] serde_json::Error),
     #[cfg(feature = "io")]
     #[error("Deserialize Error: {0}")]
     Deserialize(#[from] toml::de::Error),
+}
+
+impl Into<PgBouncerError> for String {
+    fn into(self) -> PgBouncerError {
+        PgBouncerError::PgBouncer(self)
+    }
+}
+
+impl Into<PgBouncerError> for &str {
+    fn into(self) -> PgBouncerError {
+        PgBouncerError::PgBouncer(self.to_string())
+    }
 }

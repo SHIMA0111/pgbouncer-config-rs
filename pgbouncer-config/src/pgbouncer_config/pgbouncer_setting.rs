@@ -989,7 +989,7 @@ impl Default for PgBouncerSetting {
 
 #[typetag::serde]
 impl Expression for PgBouncerSetting {
-    fn expr(&self) -> String {
+    fn expr(&self) -> crate::error::Result<String> {
         let mut expr = "[pgbouncer]\n".to_string();
         expr.push_str(&format!("listen_addr = {}\n", self.listen_addr));
         expr.push_str(&format!("listen_port = {}\n", self.listen_port));
@@ -1027,7 +1027,7 @@ impl Expression for PgBouncerSetting {
             expr.push_str(&format!("auth_ident_file = {}\n", auth_ident_file));
         }
 
-        expr
+        Ok(expr)
     }
 
     fn section_name(&self) -> &'static str {
@@ -1341,7 +1341,7 @@ mod tests {
             .set_unix_socket_dir(Some("/var/run"))
             .set_auth_ident_file(Some("/etc/pgbouncer/ident.map"));
 
-        let text = s.expr();
+        let text = s.expr().unwrap();
         assert!(text.starts_with("[pgbouncer]\n"));
         assert!(text.contains("listen_addr = 0.0.0.0"));
         assert!(text.contains("listen_port = 6432"));

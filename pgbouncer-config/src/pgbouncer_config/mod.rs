@@ -35,6 +35,7 @@ use crate::utils::diff::Diffable;
 
 pub mod pgbouncer_setting;
 pub mod databases_setting;
+mod derive_expression;
 
 static EXPRESSION_DEFAULT_SECTION_NAME: LazyLock<Mutex<HashMap<TypeId, &'static str>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -58,10 +59,10 @@ macro_rules! define_expression {
             /// use pgbouncer_config::pgbouncer_config::pgbouncer_setting::PgBouncerSetting;
             /// use pgbouncer_config::pgbouncer_config::Expression;
             /// let node = PgBouncerSetting::default();
-            /// let text = node.expr();
+            /// let text = node.expr().unwrap();
             /// assert!(text.contains("[pgbouncer]"));
             /// ```
-            fn expr(&self) -> String;
+            fn expr(&self) -> crate::error::Result<String>;
             /// Returns the name of the section corresponding to the struct's type.
             ///
             /// This method provides a default implementation that uses the structure's type name
@@ -223,7 +224,7 @@ impl PgBouncerConfig {
     ///     .build();
     /// let pgb: &PgBouncerSetting = cfg.get_config::<PgBouncerSetting>().unwrap();
     /// // Access via the Expression trait for demonstration
-    /// assert!(pgb.expr().contains("[pgbouncer]"));
+    /// assert!(pgb.expr().unwrap().contains("[pgbouncer]"));
     /// ```
     ///
     /// # Notes
@@ -290,6 +291,32 @@ impl PgBouncerConfig {
         Err(PgBouncerError::PgBouncer("failed to get config".to_string()))
     }
 
+    /// Generates a concatenated string representation of expressions from the settings.
+    ///
+    /// This function iterates over the `settings` collection, retrieves and consolidates
+    /// string representations of each configuration's expression by calling their respective
+    /// `expr` methods. It returns the result as a single string with each expression
+    /// separated by a newline character.
+    ///
+    /// # Returns
+    /// A `String` containing all configuration expressions, joined by newline characters.
+    ///
+    /// # Notes
+    /// - Assumes that `settings` is a collection (e.g., `HashMap` or similar) where the values
+    ///   are configurations that implement the `expr` method, returning a `String`.
+    /// ```
+    pub fn expr(&self) -> crate::error::Result<String> {
+        let mut expr_res = String::new();
+
+        for (_, setting) in &self.settings {
+            let expr = setting.expr()?;
+            expr_res.push_str(&expr);
+            expr_res.push('\n');
+        }
+
+        Ok(expr_res)
+    }
+
     pub(crate) fn add_config<C: Expression + 'static>(&mut self, config: C) -> crate::error::Result<()> {
         if self.settings.contains_key(config.section_name()) {
             return Err(PgBouncerError::PgBouncer(format!("section {} already exists", config.section_name())));
@@ -307,7 +334,7 @@ impl PgBouncerConfig {
 
 impl Display for PgBouncerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.expr())
+        write!(f, "{}", self.expr().map_err(|_| std::fmt::Error)?)
     }
 }
 
@@ -352,22 +379,6 @@ where
         Self {
             settings: configs,
         }
-    }
-}
-
-
-#[typetag::serde]
-impl Expression for PgBouncerConfig {
-    fn expr(&self) -> String {
-        self.settings
-            .iter()
-            .map(|(_, config)| config.expr())
-            .collect::<Vec<String>>()
-            .join("\n")
-    }
-
-    fn section_name(&self) -> &'static str {
-        "pgbouncer-config"
     }
 }
 
@@ -445,35 +456,55 @@ impl Diffable for PgBouncerConfig {}
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "derive")]
+    use pgbouncer_config_derive::Expression;
+    #[cfg(feature = "derive")]
+    use crate as pgbouncer_config;
     use super::*;
 
+    #[cfg(feature = "derive")]
+    #[derive(Clone, Serialize, Deserialize, Debug, Expression)]
+    struct Dummy;
+
+    #[cfg(not(feature = "derive"))]
     #[derive(Clone, Serialize, Deserialize, Debug)]
     struct Dummy;
 
+    #[cfg(not(feature = "derive"))]
+    #[typetag::serde]
+    impl Expression for Dummy {
+        fn section_name(&self) -> &'static str {
+            "dummy"
+        }
+
+        fn expr(&self) -> crate::error::Result<String> {
+            Ok("[dummy]\n".to_string())
+        }
+    }
+
+    #[cfg(feature = "derive")]
+    #[derive(Clone, Serialize, Deserialize, Debug, Expression)]
+    struct Dummy2;
+
+    #[cfg(not(feature = "derive"))]
     #[derive(Clone, Serialize, Deserialize, Debug)]
     struct Dummy2;
 
+    #[cfg(not(feature = "derive"))]
     #[typetag::serde]
-    impl Expression for Dummy {
-        fn expr(&self) -> String { "dummy".to_string() }
-
+    impl Expression for Dummy2 {
         fn section_name(&self) -> &'static str {
-            "dummy"
+            "dummy2"
+        }
+
+        fn expr(&self) -> crate::error::Result<String> {
+            Ok("[dummy2]\n".to_string())
         }
     }
 
     #[cfg(feature = "diff")]
     #[typetag::serde]
     impl Diffable for Dummy {}
-
-    #[typetag::serde]
-    impl Expression for Dummy2 {
-        fn expr(&self) -> String { "dummy2".to_string() }
-
-        fn section_name(&self) -> &'static str {
-            "dummy2"
-        }
-    }
 
     #[cfg(feature = "diff")]
     #[typetag::serde]
@@ -499,12 +530,12 @@ pool_mode = session\n\
         cfg.add_config(Dummy).unwrap();
         assert_eq!(cfg.len(), 1);
         // Index and display via expr
-        assert_eq!(cfg[&Dummy.section_name()].expr(), "dummy");
-        assert_eq!(format!("{}", cfg), "dummy");
+        assert_eq!(cfg[&Dummy.section_name()].expr().unwrap(), "[dummy]\n");
+        assert!(format!("{}", cfg).contains("dummy"));
 
         // IndexMut allows modifying element in place
         cfg[&Dummy.section_name()] = Box::new(Dummy);
-        assert_eq!(cfg[&Dummy.section_name()].expr(), "dummy");
+        assert_eq!(cfg[&Dummy.section_name()].expr().unwrap(), "[dummy]\n");
     }
 
     #[test]
@@ -514,7 +545,7 @@ pool_mode = session\n\
         // Duplicate section names are not allowed; constructing from a slice
         // with duplicates will deduplicate by section name.
         assert_eq!(cfg.len(), 1);
-        assert!(cfg.expr().contains("dummy"));
+        assert!(cfg.expr().unwrap().contains("dummy"));
     }
 
     #[test]
@@ -522,8 +553,8 @@ pool_mode = session\n\
         let arr: [&dyn Expression; 2] = [&Dummy, &Dummy2];
         let cfg = PgBouncerConfig::from(&arr[..]);
         assert_eq!(cfg.len(), 2);
-        assert!(cfg.expr().contains("dummy"));
-        assert!(cfg.expr().contains("dummy2"));
+        assert!(cfg.expr().unwrap().contains("dummy"));
+        assert!(cfg.expr().unwrap().contains("dummy2"));
     }
 
     #[cfg(feature = "io")]
@@ -544,7 +575,7 @@ app = dbname=app host=127.0.0.1 port=5432\n\
     fn parse_from_str_minimal_pgbouncer_ok() {
         let ini = minimal_pgbouncer_section();
         let cfg = PgBouncerConfig::parse_from_str(&ini).expect("parse ok");
-        let text = cfg.expr();
+        let text = cfg.expr().unwrap();
         assert!(text.contains("[pgbouncer]"));
         // [databases] may be empty/default but section from DatabasesSetting exists
         assert!(text.contains("[databases]"));
