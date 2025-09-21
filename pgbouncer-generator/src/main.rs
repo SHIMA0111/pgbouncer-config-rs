@@ -196,7 +196,7 @@ enum Commands {
         path_pgbouncer_ini: String,
         #[clap(
             help = "Allow to overwrite the pgbouncer.ini file if it exists",
-            short,
+            short = 'o',
             long,
             default_value = "false",
         )]

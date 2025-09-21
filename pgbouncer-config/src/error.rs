@@ -24,6 +24,9 @@ pub enum PgBouncerError {
     #[cfg(feature = "io")]
     #[error("Deserialize Error: {0}")]
     Deserialize(#[from] toml::de::Error),
+    #[cfg(feature = "io")]
+    #[error("PgBouncerConfigSerde Error: {0}")]
+    PgBouncerConfigSerde(#[from] pgbouncer_config_serde::error::PgBouncerSerdeError),
 }
 
 impl Into<PgBouncerError> for String {

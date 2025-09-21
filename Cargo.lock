@@ -1095,6 +1095,7 @@ dependencies = [
  "heck",
  "md-5",
  "pgbouncer-config-derive",
+ "pgbouncer-config-serde",
  "regex",
  "serde",
  "serde_json",
@@ -1112,6 +1113,15 @@ dependencies = [
  "heck",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "pgbouncer-config-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ typetag = "0.2"
 toml = { version = "0.9", optional = true }
 serde_json = { version = "1", optional = true }
 regex = "1"
+pgbouncer-config-serde = { version = "0.1", path = "../pgbouncer-config-serde", optional = true }
 
 # Hash
 md-5 = "0.10"
@@ -37,6 +38,6 @@ pgbouncer-config-derive = { version = "0.1", path = "../pgbouncer-config-derive"
 [features]
 default = []
 diff = ["io"]
-io = ["toml", "serde_json"]
+io = ["toml", "serde_json", "pgbouncer-config-serde"]
 derive = ["pgbouncer-config-derive", "serde_json"]
 full = ["diff", "derive"]
