@@ -1,6 +1,5 @@
 use std::fs::create_dir_all;
 use std::path::Path;
-use pgbouncer_config_serde::ser::to_string;
 use crate::io::ConfigFileFormat;
 use crate::pgbouncer_config::{PgBouncerConfig};
 
@@ -86,7 +85,7 @@ impl<W: std::io::Write> Writer<W> {
     /// assert!(!buf.is_empty());
     /// ```
     pub fn write(&mut self, config: &PgBouncerConfig) -> crate::error::Result<()> {
-        writeln!(self.0, "{}", to_string(config)?)?;
+        writeln!(self.0, "{}", config.expr()?)?;
         Ok(())
     }
 

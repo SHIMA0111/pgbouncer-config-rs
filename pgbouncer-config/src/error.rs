@@ -15,6 +15,14 @@ pub enum PgBouncerError {
     Regex(#[from] regex::Error),
     #[error("Tokio task Error: {0}")]
     Join(#[from] tokio::task::JoinError),
+    #[error("SSH connection error: {0}")]
+    SshConnection(#[from] russh::Error),
+    #[error("SSH key error: {0}")]
+    SshKey(#[from] russh::keys::Error),
+    #[error("SSH authenticate error: {0}")]
+    SshAuth(String),
+    #[error("SSH error: {0}")]
+    Connection(String),
     #[cfg(feature = "io")]
     #[error("Serialize Error: {0}")]
     Serialize(#[from] toml::ser::Error),
@@ -24,9 +32,6 @@ pub enum PgBouncerError {
     #[cfg(feature = "io")]
     #[error("Deserialize Error: {0}")]
     Deserialize(#[from] toml::de::Error),
-    #[cfg(feature = "io")]
-    #[error("PgBouncerConfigSerde Error: {0}")]
-    PgBouncerConfigSerde(#[from] pgbouncer_config_serde::error::PgBouncerSerdeError),
 }
 
 impl Into<PgBouncerError> for String {

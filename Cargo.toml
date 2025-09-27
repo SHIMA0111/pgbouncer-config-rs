@@ -1,3 +1,3 @@
 [workspace]
-members = ["pgbouncer-config", "pgbouncer-config-derive", "pgbouncer-config-serde", "pgbouncer-generator"]
+members = ["pgbouncer-config", "pgbouncer-config-derive", "pgbouncer-config-parser", "pgbouncer-generator"]
 resolver = "3"

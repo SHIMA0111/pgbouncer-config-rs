@@ -7,6 +7,7 @@ use crate::pg_client::PgClient;
 use crate::pgbouncer_config::Expression;
 #[cfg(feature = "io")]
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "io")]
 use regex::Regex;
 #[cfg(feature = "io")]
@@ -15,6 +16,7 @@ use crate::error::PgBouncerError;
 use crate::utils::parser::{parse_key_value, ParserIniFromStr};
 #[cfg(feature = "diff")]
 use crate::utils::diff::Diffable;
+use crate::utils::ssh_tunnel::SSHTunnel;
 
 /// Databases section settings.
 ///
@@ -96,6 +98,35 @@ impl DatabasesSetting {
 
         self.clone()
     }
+    
+    
+    /// Add a default Database entry with SSH tunneling enabled.
+    ///
+    /// Creates a `Database::default()`, enables SSH tunneling on it using
+    /// `Database::enable_ssh_tunneling()`, and appends it to this collection.
+    /// Returns a cloned instance reflecting the change.
+    ///
+    /// # Returns
+    /// A cloned instance with a new default database configured to use SSH tunneling.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::DatabasesSetting;
+    /// let mut settings = DatabasesSetting::new();
+    /// let settings2 = settings.add_empty_database_with_tunnel();
+    /// # let _ = settings2; // avoid unused variable warning in doctest
+    /// ```
+    ///
+    /// # Notes
+    /// - SSH tunnel parameters are initialized with `SSHTunnelBuilder::default()` via
+    ///   `Database::enable_ssh_tunneling()`.
+    pub fn add_empty_database_with_tunnel(&mut self) -> Self {
+        let mut database = Database::default();
+        database.enable_ssh_tunneling();
+        self.add_database(database);
+        
+        self.clone()
+    }
 
     /// Fetches databases from PostgreSQL hosts for the contained `Database` entries concurrently.
     ///
@@ -159,6 +190,7 @@ impl DatabasesSetting {
             }));
         }
 
+        // TODO: The import doesn't work. I'll solve this in a few days.
         let join_reses = join_all(temp_db_joins).await;
         for join_res in join_reses {
             join_res??;
@@ -275,6 +307,7 @@ pub struct Database {
     password: String,
     databases: Vec<String>,
     ignore_databases: Vec<String>,
+    ssh_tunneling: Option<SSHTunnelBuilder>,
     is_output_credentials_to_config: bool,
 }
 
@@ -317,6 +350,7 @@ impl Database {
             password: password.to_string(),
             databases,
             ignore_databases: vec![],
+            ssh_tunneling: None,
             is_output_credentials_to_config: false,
         }
     }
@@ -486,6 +520,48 @@ impl Database {
         self.is_output_credentials_to_config = is_output_credentials_to_config;
         self.clone()
     }
+    
+    /// Enables SSH tunneling using default settings.
+    ///
+    /// Initializes an SSH tunnel builder with `SSHTunnelBuilder::default()` and assigns it to this
+    /// database configuration. Returns a cloned instance with SSH tunneling enabled.
+    ///
+    /// # Returns
+    /// A cloned instance with SSH tunneling enabled.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::Database;
+    /// let mut db = Database::default();
+    /// let db2 = db.enable_ssh_tunneling();
+    /// # let _ = db2;
+    /// ```
+    pub fn enable_ssh_tunneling(&mut self) -> Self {
+        let ssh_tunnel = SSHTunnelBuilder::default();
+        self.ssh_tunneling = Some(ssh_tunnel);
+        self.clone()
+    }
+
+    /// Enables SSH tunneling on this database configuration.
+    ///
+    /// # Parameters
+    /// - ssh_tunnel: SSH tunnel configuration to enable.
+    ///
+    /// # Returns
+    /// A cloned instance with SSH tunneling enabled.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::{Database, SSHTunnelBuilder, SSHAuth};
+    /// let mut db = Database::default();
+    /// let tunnel = SSHTunnelBuilder::new("example.com", "alice", SSHAuth::Password("pw".to_string()), "remote_host");
+    /// let db2 = db.set_ssh_tunnel(tunnel);
+    /// # let _ = db2; // avoid unused variable warning in doctest
+    /// ```
+    pub fn set_ssh_tunnel(&mut self, ssh_tunnel: SSHTunnelBuilder) -> Self {
+        self.ssh_tunneling = Some(ssh_tunnel);
+        self.clone()
+    }
 
     /// Asynchronously retrieves a list of databases from a specified PostgreSQL host and updates the internal state.
     ///
@@ -502,16 +578,33 @@ impl Database {
     /// - Returns `Ok(())` on success, indicating that the database list was successfully updated.
     pub async fn get_databases_from_host(&mut self, default_db: Option<&str>) -> crate::error::Result<()> {
         let db_name = default_db.unwrap_or("postgres");
+        let ssh_session = if let Some(ssh_session) = &self.ssh_tunneling {
+            let ssh_tunnel = SSHTunnel::from(ssh_session.clone());
+            Some(ssh_tunnel.run().await?)
+        } else {
+            None
+        };
+
+        let (db_host, db_port) = if let Some(ssh_session) = &ssh_session {
+            let local_addr = ssh_session.local_addr();
+            (local_addr.ip().to_string(), local_addr.port())
+        } else {
+            (self.host.clone(), self.port)
+        };
 
         let client = PgClient::new(
-            self.host(),
-            self.port(),
+            &db_host,
+            db_port,
             self.user(),
             self.password(),
             db_name,
         ).await?;
         let db_names = client.get_databases().await?;
         self.push_databases(&db_names);
+
+        if let Some(ssh_session) = ssh_session {
+            ssh_session.shutdown().await;
+        }
 
         Ok(())
     }
@@ -641,6 +734,166 @@ impl ParserIniFromStr for Database {
             password.as_deref().unwrap_or("<hidden>"),
             Some(&db_names),
         ))
+    }
+}
+
+/// SSH tunnel configuration between a local and a remote system.
+///
+/// # Fields
+/// - host: Bastion hostname or IP address to connect to.
+/// - port: Optional SSH port on the remote host (defaults to 22 if not set).
+/// - user: Username used for authentication on the remote host.
+/// - auth: Authentication method for the SSH connection.
+/// - local_port: Optional local bind port for the tunnel (auto-selected if not set).
+/// - remote_host: Remote hostname or IP address to connect to.
+/// - remote_port: Optional remote destination port to forward to (e.g., 5432 for PostgreSQL).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SSHTunnelBuilder {
+    pub(crate) host: String,
+    pub(crate) port: Option<u16>,
+    pub(crate) user: String,
+    pub(crate) auth: SSHAuth,
+    pub(crate) local_port: Option<u16>,
+    pub(crate) remote_host: String,
+    pub(crate) remote_port: Option<u16>,
+}
+
+impl SSHTunnelBuilder {
+    /// Creates a new SSH tunnel configuration.
+    ///
+    /// # Parameters
+    /// - host: Hostname or IP address of the bastion server.
+    /// - user: Username to authenticate with.
+    /// - auth: Authentication method to use.
+    /// - remote_host: Hostname or IP address of the target server
+    ///
+    /// # Returns
+    /// A new instance with the provided host, user, and authentication; other fields are initialized to None.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::{SSHAuth, SSHTunnelBuilder};
+    /// let auth = SSHAuth::Password("example_password".to_string());
+    /// let _tunnel = SSHTunnelBuilder::new("192.168.1.1", "user", auth, "db.internal");
+    /// ```
+    pub fn new(host: &str, user: &str, auth: SSHAuth, remote_host: &str) -> Self {
+        Self {
+            host: host.to_string(),
+            port: None,
+            user: user.to_string(),
+            auth,
+            local_port: None,
+            remote_host: remote_host.to_string(),
+            remote_port: None,
+        }
+    }
+
+    /// Sets the SSH port.
+    ///
+    /// # Parameters
+    /// - port: SSH port number to use.
+    ///
+    /// # Returns
+    /// A cloned instance with the updated SSH port.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::{SSHAuth, SSHTunnelBuilder};
+    /// let auth = SSHAuth::Password("pw".to_string());
+    /// let mut t = SSHTunnelBuilder::new("192.168.1.1", "user", auth, "remote_host");
+    /// let _t = t.set_ssh_port(52);
+    /// ```
+    ///
+    /// # Notes
+    /// - Calling this method overwrites the existing port if already set.
+    pub fn set_ssh_port(&mut self, port: u16) -> Self {
+        self.port = Some(port);
+        self.clone()
+    }
+
+    /// Sets the local port.
+    ///
+    /// # Parameters
+    /// - local_port: Local bind port for the tunnel.
+    ///
+    /// # Returns
+    /// A cloned instance with the updated local port.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::{SSHAuth, SSHTunnelBuilder};
+    /// let auth = SSHAuth::Password("pw".to_string());
+    /// let mut t = SSHTunnelBuilder::new("127.0.0.1", "user", auth, "remote_host");
+    /// let _t = t.set_local_port(8080);
+    /// ```
+    pub fn set_local_port(&mut self, local_port: u16) -> Self {
+        self.local_port = Some(local_port);
+        self.clone()
+    }
+
+    /// Sets the remote port.
+    ///
+    /// # Parameters
+    /// - remote_port: Remote destination port to forward to.
+    ///
+    /// # Returns
+    /// A cloned instance with the updated remote port.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use pgbouncer_config::pgbouncer_config::databases_setting::{SSHAuth, SSHTunnelBuilder};
+    /// let auth = SSHAuth::Password("pw".to_string());
+    /// let mut t = SSHTunnelBuilder::new("db.example.com", "user", auth, "remote_host");
+    /// let _t = t.set_remote_port(5432);
+    /// ```
+    pub fn set_remote_port(&mut self, remote_port: u16) -> Self {
+        self.remote_port = Some(remote_port);
+        self.clone()
+    }
+}
+
+impl Default for SSHTunnelBuilder {
+    fn default() -> Self {
+        Self {
+            host: "ssh.tunnel.server".to_string(),
+            port: None,
+            user: "ubuntu".to_string(),
+            auth: SSHAuth::LocalSSHKeyFile {
+                path: Path::new("/path/to/secret_file").to_path_buf(),
+                pass_phrase: None
+            },
+            local_port: None,
+            remote_host: "postgres.database.db".to_string(),
+            remote_port: None,
+        }
+    }
+}
+
+/// SSH authentication methods.
+///
+/// # Variants
+/// - Password(String): Password-based SSH authentication.
+/// - SSHKey { key: String, pass_phrase: Option<String> }: In-memory private key with optional passphrase.
+/// - LocalSSHKeyFile { path: PathBuf, pass_phrase: Option<String> }: Local key file with optional passphrase.
+///
+/// # Examples
+/// ```rust
+/// use std::path::PathBuf;
+/// use pgbouncer_config::pgbouncer_config::databases_setting::SSHAuth;
+/// let _auth1 = SSHAuth::Password("my_password".to_string());
+/// let _auth2 = SSHAuth::SSHKey { key: "ssh-rsa AAAAB3...".to_string(), pass_phrase: Some("pass".to_string()) };
+/// let _auth3 = SSHAuth::LocalSSHKeyFile { path: PathBuf::from("/tmp/id_rsa"), pass_phrase: None };
+/// ```
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SSHAuth {
+    Password(String),
+    SSHKey {
+        key: String,
+        pass_phrase: Option<String>,
+    },
+    LocalSSHKeyFile {
+        path: PathBuf,
+        pass_phrase: Option<String>,
     }
 }
 

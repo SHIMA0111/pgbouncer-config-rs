@@ -29,6 +29,13 @@ enum Commands {
         )]
         path_def_file: String,
         #[clap(
+            help = "Enabling SSH tunnel setting to the definition file",
+            short,
+            long,
+            default_value = "false",
+        )]
+        enable_ssh_tunnel: bool,
+        #[clap(
             help = "Flag if the definition file should be overwritten if it exists",
             short,
             long,
@@ -45,6 +52,13 @@ enum Commands {
             default_value = "./generated/pgbouncer_definition.toml",
         )]
         path_def_file: String,
+        #[clap(
+            help = "Enabling SSH tunnel setting to the definition file",
+            short,
+            long,
+            default_value = "false",
+        )]
+        enable_ssh_tunnel: bool,
         #[clap(
             help = "Allow to create a new definition file if the definition file does not exist when add empty Postgres template",
             short,
@@ -210,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
 
     match args.command {
-        Commands::Init { path_def_file, force_overwrite } => {
+        Commands::Init { path_def_file, enable_ssh_tunnel, force_overwrite } => {
             let path: &Path = path_def_file.as_str().as_ref();
             if path.exists() && !force_overwrite {
                 return Err(anyhow::anyhow!("The definition file already exists"));
@@ -218,7 +232,11 @@ async fn main() -> anyhow::Result<()> {
 
             let pgbouncer_setting = PgBouncerSetting::default();
             let mut db_setting = DatabasesSetting::new();
-            db_setting.add_empty_database();
+            if enable_ssh_tunnel {
+                db_setting.add_empty_database_with_tunnel();
+            } else {
+                db_setting.add_empty_database();
+            }
 
             let pgbouncer_config = PgBouncerConfigBuilder::builder()
                 .set_pgbouncer_setting(pgbouncer_setting)?
@@ -230,12 +248,16 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         },
-        Commands::AddEmptyPgTemplate { path_def_file, allow_not_exist } => {
+        Commands::AddEmptyPgTemplate { path_def_file, enable_ssh_tunnel, allow_not_exist } => {
             let path: &Path = path_def_file.as_str().as_ref();
             let mut current_setting = load_config_from_definition(path, allow_not_exist)?;
 
-            current_setting.get_config_mut::<DatabasesSetting>()?
-                .add_empty_database();
+            let db_setting = current_setting.get_config_mut::<DatabasesSetting>()?;
+            if enable_ssh_tunnel {
+                db_setting.add_empty_database_with_tunnel();
+            } else {
+                db_setting.add_empty_database();
+            }
             let mut writer = Writer::try_from(Writers::File(path))?;
             writer.write_config(&current_setting, TOML)?;
 

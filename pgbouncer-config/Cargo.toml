@@ -13,6 +13,7 @@ thiserror = "2"
 
 # Formatter
 heck = "0.5"
+log = "0.4"
 
 # Structured/Parser
 serde = { version = "1", features = ["derive"] }
@@ -20,13 +21,15 @@ typetag = "0.2"
 toml = { version = "0.9", optional = true }
 serde_json = { version = "1", optional = true }
 regex = "1"
-pgbouncer-config-serde = { version = "0.1", path = "../pgbouncer-config-serde", optional = true }
 
 # Hash
 md-5 = "0.10"
 
 # DB
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-native-tls"] }
+
+# SSH
+russh = "0.54"
 
 # async/await
 futures = "0.3"
@@ -38,6 +41,6 @@ pgbouncer-config-derive = { version = "0.1", path = "../pgbouncer-config-derive"
 [features]
 default = []
 diff = ["io"]
-io = ["toml", "serde_json", "pgbouncer-config-serde"]
+io = ["toml", "serde_json"]
 derive = ["pgbouncer-config-derive", "serde_json"]
 full = ["diff", "derive"]
