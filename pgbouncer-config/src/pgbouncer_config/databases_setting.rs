@@ -169,7 +169,7 @@ impl DatabasesSetting {
     /// - Requires a Tokio runtime.
     /// - Spawns one task per `Database` entry and waits for all to complete.
     /// - Internally clones each `Database` before fetching.
-    pub async fn add_database_from_hosts(&self, target_hosts: Option<&[&str]>) -> crate::error::Result<()> {
+    pub async fn add_database_from_hosts(&mut self, target_hosts: Option<&[&str]>) -> crate::error::Result<()> {
         let hosts = if let Some(hosts) = target_hosts {
             hosts.iter().map(|&host| host.to_string()).collect()
         } else {
@@ -177,24 +177,37 @@ impl DatabasesSetting {
         };
 
         let mut temp_db_joins = vec![];
-        for database in &self.databases {
-            if hosts.len() > 0 && !hosts.contains(&database.host().to_string()) {
+        let current_databases = self.databases.clone()
+            .into_iter()
+            .map(|databases| Arc::new(Mutex::new(databases)))
+            .collect::<Vec<_>>();
+
+        for database in &current_databases {
+            let database_lock = database.lock().await;
+            if hosts.len() > 0 && !hosts.contains(&database_lock.host().to_string()) {
+                drop(database_lock);
                 continue;
             }
 
-            let temp_db = Arc::new(Mutex::new(database.clone()));
-            let temp_db_clone = temp_db.clone();
+            let temp_db_clone = database.clone();
             temp_db_joins.push(tokio::spawn(async move {
                 let mut temp_db_lock = temp_db_clone.lock().await;
                 temp_db_lock.get_databases_from_host(None).await
             }));
         }
 
-        // TODO: The import doesn't work. I'll solve this in a few days.
         let join_reses = join_all(temp_db_joins).await;
         for join_res in join_reses {
             join_res??;
         }
+
+        let mut databases= Vec::new();
+        for database in current_databases {
+            let raw_database = database.lock().await.clone();
+            databases.push(raw_database);
+        }
+
+        self.databases = databases;
 
         Ok(())
     }
@@ -307,6 +320,7 @@ pub struct Database {
     password: String,
     databases: Vec<String>,
     ignore_databases: Vec<String>,
+    #[serde(flatten)]
     ssh_tunneling: Option<SSHTunnelBuilder>,
     is_output_credentials_to_config: bool,
 }
@@ -579,7 +593,8 @@ impl Database {
     pub async fn get_databases_from_host(&mut self, default_db: Option<&str>) -> crate::error::Result<()> {
         let db_name = default_db.unwrap_or("postgres");
         let ssh_session = if let Some(ssh_session) = &self.ssh_tunneling {
-            let ssh_tunnel = SSHTunnel::from(ssh_session.clone());
+            let mut ssh_tunnel = SSHTunnel::from(ssh_session.clone());
+            ssh_tunnel.set_pg_host(self.host());
             Some(ssh_tunnel.run().await?)
         } else {
             None
@@ -749,12 +764,17 @@ impl ParserIniFromStr for Database {
 /// - remote_port: Optional remote destination port to forward to (e.g., 5432 for PostgreSQL).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SSHTunnelBuilder {
+    #[serde(rename = "ssh_tunnel_host")]
     pub(crate) host: String,
+    #[serde(rename = "ssh_tunnel_port")]
     pub(crate) port: Option<u16>,
+    #[serde(rename = "ssh_tunnel_user")]
     pub(crate) user: String,
+    #[serde(flatten)]
     pub(crate) auth: SSHAuth,
+    #[serde(rename = "ssh_tunnel_local_port")]
     pub(crate) local_port: Option<u16>,
-    pub(crate) remote_host: String,
+    #[serde(rename = "ssh_tunnel_remote_port")]
     pub(crate) remote_port: Option<u16>,
 }
 
@@ -774,16 +794,15 @@ impl SSHTunnelBuilder {
     /// ```rust
     /// use pgbouncer_config::pgbouncer_config::databases_setting::{SSHAuth, SSHTunnelBuilder};
     /// let auth = SSHAuth::Password("example_password".to_string());
-    /// let _tunnel = SSHTunnelBuilder::new("192.168.1.1", "user", auth, "db.internal");
+    /// let _tunnel = SSHTunnelBuilder::new("192.168.1.1", "user", auth);
     /// ```
-    pub fn new(host: &str, user: &str, auth: SSHAuth, remote_host: &str) -> Self {
+    pub fn new(host: &str, user: &str, auth: SSHAuth) -> Self {
         Self {
             host: host.to_string(),
             port: None,
             user: user.to_string(),
             auth,
             local_port: None,
-            remote_host: remote_host.to_string(),
             remote_port: None,
         }
     }
@@ -863,7 +882,6 @@ impl Default for SSHTunnelBuilder {
                 pass_phrase: None
             },
             local_port: None,
-            remote_host: "postgres.database.db".to_string(),
             remote_port: None,
         }
     }
@@ -885,14 +903,24 @@ impl Default for SSHTunnelBuilder {
 /// let _auth3 = SSHAuth::LocalSSHKeyFile { path: PathBuf::from("/tmp/id_rsa"), pass_phrase: None };
 /// ```
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(tag = "ssh_auth_type")]
 pub enum SSHAuth {
-    Password(String),
+    #[serde(rename = "password")]
+    Password {
+        password: String
+    },
+    #[serde(rename = "ssh_raw_key")]
     SSHKey {
+        #[serde(rename = "ssh_key_string")]
         key: String,
+        #[serde(rename = "ssh_key_passphrase")]
         pass_phrase: Option<String>,
     },
+    #[serde(rename = "ssh_key_file")]
     LocalSSHKeyFile {
+        #[serde(rename = "ssh_key_path")]
         path: PathBuf,
+        #[serde(rename = "ssh_key_passphrase")]
         pass_phrase: Option<String>,
     }
 }

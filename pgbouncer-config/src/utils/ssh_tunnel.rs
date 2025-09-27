@@ -17,13 +17,14 @@ impl client::Handler for ClientHandler {
     }
 }
 
+#[derive(Clone)]
 pub struct SSHTunnel {
     bastion_host: String,
     bastion_port: u16,
     bastion_user: String,
     bastion_auth: SSHAuth,
     local_port: u16,
-    pg_host: String,
+    pg_host: Option<String>,
     pg_port: u16,
 }
 
@@ -49,7 +50,7 @@ impl SSHTunnel {
         bastion_user: &str,
         bastion_auth: SSHAuth,
         local_port: u16,
-        pg_host: &str,
+        pg_host: Option<&str>,
         pg_port: u16,
     ) -> Self {
         Self {
@@ -58,9 +59,14 @@ impl SSHTunnel {
             bastion_user: bastion_user.to_string(),
             bastion_auth,
             local_port,
-            pg_host: pg_host.to_string(),
+            pg_host: pg_host.map(ToString::to_string),
             pg_port,
         }
+    }
+    
+    pub fn set_pg_host(&mut self, pg_host: &str) -> Self {
+        self.pg_host = Some(pg_host.to_string());
+        self.clone()
     }
 
     pub async fn run(&self) -> crate::error::Result<SSHTunnelHandler> {
@@ -72,7 +78,7 @@ impl SSHTunnel {
             config, (self.bastion_host(), self.bastion_port), client_handler).await?;
 
         let auth_success = match self.bastion_auth() {
-            SSHAuth::Password(password) => {
+            SSHAuth::Password{ password} => {
                 session.authenticate_password(self.bastion_user(), password).await?
             },
             SSHAuth::SSHKey {
@@ -110,7 +116,11 @@ impl SSHTunnel {
         let session_arc = Arc::new(session);
 
         let session_arc_clone = session_arc.clone();
-        let pg_host = self.pg_host.clone();
+        let pg_host = if let Some(host) = self.pg_host.clone() {
+            host
+        } else {
+            return Err(PgBouncerError::Connection("Postgres hostname is required but isn't given".to_string()));
+        };
         let pg_port = self.pg_port;
         tokio::spawn(async move {
             loop {
@@ -219,7 +229,7 @@ impl From<SSHTunnelBuilder> for SSHTunnel {
             bastion_user: value.user,
             bastion_auth: value.auth,
             local_port,
-            pg_host: value.remote_host,
+            pg_host: None,
             pg_port,
         }
     }
