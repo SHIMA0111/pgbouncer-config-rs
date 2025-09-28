@@ -267,9 +267,9 @@ impl Expression for DatabasesSetting {
         let mut text = String::new();
         text.push_str("[databases]\n");
         for database in &self.databases {
-            text.push_str(&format!("{}\n", database.expr()));
-            text.push_str("\n");
+            text.push_str(&format!("{}", database.expr()));
         }
+        text.push_str("\n");
 
         Ok(text)
     }

@@ -114,6 +114,8 @@ macro_rules! define_expression {
                         Box::leak(kebab_section_name.into_boxed_str())
                     })
             }
+            fn to_template_string(&self) -> Result<String, PgBouncerError>;
+            fn from_template_string(s: &str) -> Result<Self, PgBouncerError> where Self: Sized;
         }
     };
 }

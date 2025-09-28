@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 chumsky = "0.11"
+thiserror = "2"
